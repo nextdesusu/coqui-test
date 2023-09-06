@@ -1,14 +1,17 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
-import struct
 from string import Template
-import time
+from bark import SAMPLE_RATE, generate_audio, preload_models
+from scipy.io.wavfile import write as write_wav
 import uvicorn
 import torch
-from TTS.api import TTS
-from TTS.utils.synthesizer import Synthesizer 
+import os
+
+os.environ["SUNO_OFFLOAD_CPU"] = "True"
+os.environ["SUNO_USE_SMALL_MODELS"] = "True"
 
 app = FastAPI()
+
 
 template = """
 <html><head><meta charset="utf-8">
@@ -62,32 +65,27 @@ template = """
 </body>
 """
 
+preload_models()
+
 # Get device
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# # List available 🐸TTS models and choose the first one
-model_name = TTS().list_models()[0]
-# # Init TTS
-# model_name = "tts_models/multilingual/multi-dataset/bark"
-tts = TTS(model_name).to(device)
-tts.speakers
-print("speakers", tts.speakers)
-
-print("languages", tts.languages)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     while True:
         data = await websocket.receive_text()
-        F_NAME="output.wav"
+        F_NAME = "output.wav"
+        audio_array = generate_audio(data)
+        write_wav(F_NAME, SAMPLE_RATE, audio_array)
         # wav = np.array(tts.tts(data, speaker=tts.speakers[0], language=tts.languages[0]))
         # wav_norm = wav * (32767 / max(0.01, np.max(np.abs(wav))))
 
         # writer = BytesIO()
         # scipy.io.wavfile.write(writer, 1, wav_norm.astype(np.int16))
         # await websocket.send_bytes(writer.getvalue())
-        tts.tts_to_file(data, speaker=tts.speakers[0], language=tts.languages[0], emotion="Happy", file_path=F_NAME)
+        # tts.tts_to_file(data, speaker=tts.speakers[0], language=tts.languages[0], emotion="Happy", file_path=F_NAME)
         with open(F_NAME, 'rb') as file:
             data = file.read()
             await websocket.send_bytes(data)
